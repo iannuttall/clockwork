@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SWIFT_VERSION: "6.2"
+
+jobs:
+  lint:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install SwiftLint / SwiftFormat
+        run: brew install swiftformat swiftlint
+
+      - name: Lint
+        run: ./Scripts/lint.sh lint
+
+  build-test-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    container:
+      image: swift:6.2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Build portable targets (static stdlib)
+        run: |
+          swift build -c release --product schedulercli --static-swift-stdlib
+          swift build -c release --target SchedulerCore --static-swift-stdlib
+
+      - name: Test portable targets
+        run: swift test --filter SchedulerCoreLinuxTests
+
+  test-macos:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show tool versions
+        run: |
+          swift --version
+          xcodebuild -version || true
+
+      - name: Resolve packages
+        run: swift package resolve
+
+      - name: Swift test
+        run: swift test

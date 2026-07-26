@@ -1,0 +1,37 @@
+# SwiftFormat configuration. Swift 6.2, 4-space indent.
+--swiftversion 6.2
+
+# Indentation
+--indent 4
+--indentcase false
+--ifdef no-indent
+
+# Line breaks / width
+--linebreaks lf
+--maxwidth 120
+
+# Self / ACL
+--self insert            # explicit self (helps Swift 6 concurrency)
+--extensionacl on-declarations
+
+# Wrapping
+--wraparguments before-first
+--wrapparameters before-first
+--wrapcollections before-first
+--closingparen same-line
+
+# Whitespace
+--trimwhitespace always
+--emptybraces no-space
+--nospaceoperators ...,..<
+
+# Imports
+--importgrouping testable-bottom
+
+# Other
+--stripunusedargs closure-only
+--header ignore
+--allman false
+
+# Exclusions
+--exclude .build,.swiftpm,DerivedData,**/Generated
