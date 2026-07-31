@@ -1,5 +1,51 @@
 import SwiftUI
 
+/// Tokens for the menu-bar panel. Fixed columns and row heights keep refreshes from
+/// shifting controls under the pointer.
+enum PanelTheme {
+    enum Panel {
+        static let width: CGFloat = 400
+        static let minHeight: CGFloat = 150
+        static let emptyHeight: CGFloat = 240
+        static let maxHeight: CGFloat = 580
+        static let chromeHeight: CGFloat = 96
+        static let cornerRadius: CGFloat = 12
+        static let menuBarGap: CGFloat = 6
+    }
+
+    enum Space {
+        static let hairline: CGFloat = 2
+        static let tight: CGFloat = 4
+        static let snug: CGFloat = 6
+        static let regular: CGFloat = 8
+        static let comfy: CGFloat = 12
+        static let loose: CGFloat = 16
+        static let gutter: CGFloat = 12
+    }
+
+    enum Size {
+        static let rowHeight: CGFloat = 54
+        static let statusDot: CGFloat = 7
+        static let statusColumn: CGFloat = 14
+        static let actionColumn: CGFloat = 52
+        static let menuBarBadge: CGFloat = 9
+        static let menuBarBadgeMoat: CGFloat = 1
+        static let menuBarBadgeOverhang: CGFloat = 3
+    }
+
+    enum Typography {
+        static let title = Font.system(size: 13, weight: .semibold)
+        static let rowTitle = Font.system(size: 13, weight: .medium)
+        static let meta = Font.system(size: 11)
+        static let button = Font.system(size: 11, weight: .medium)
+    }
+
+    enum Colour {
+        static let rowHover = Color.primary.opacity(0.06)
+        static let separator = Color.primary.opacity(0.08)
+    }
+}
+
 extension EnvironmentValues {
     /// Set on views hosted inside an `NSMenuItem` while that row is highlighted, so
     /// components can swap to selection-appropriate colors (see `MenuHighlightStyle`).

@@ -24,29 +24,35 @@ signs. There is no `.xcodeproj`.
 
 ## The menu bar
 
-The app is a no-dock agent (`LSUIElement`). SwiftUI exists only as a lifecycle host: the `App` scene
-is a hidden 1×1 keepalive `WindowGroup` plus a `Settings` scene. Everything visible is AppKit:
+The app is a no-dock agent (`LSUIElement`). `AppDelegate` creates `PanelController`, which owns the
+`NSStatusItem` and a borderless, keyable `NSPanel`. A persistent `NSHostingView` renders
+`PanelContentView`; it is created once, has intrinsic sizing disabled, and scrolls inside a size the
+controller chooses when the panel opens.
 
-- `AppDelegate` builds a `StatusItemController` (`@MainActor NSObject, NSMenuDelegate`).
-- `StatusItemController` owns the `NSStatusItem` and a native `NSMenu`. Rich rows are SwiftUI views
-  hosted in `NSMenuItem.view` via `NSHostingView` — native menu chrome, SwiftUI content.
-- `MenuDescriptor` is a pure value type describing the menu (sections, entries, actions, SF Symbols).
-  Both the AppKit builder and the SwiftUI card consume it, and it's unit-testable without AppKit.
+Opening the panel never performs disk or process work. It paints the model's warm snapshot first,
+then asks `SchedulerModel` to refresh asynchronously. Global mouse monitoring dismisses it without
+entering `NSMenu`'s blocking event-tracking loop. A native menu is used only for the status item's
+small right-click context menu.
 
-Why AppKit and not `MenuBarExtra`: full control over the menu, keyboard handling, multiple status
-items, and the option to draw the menu-bar icon itself (see the `icon-render` module).
+Why AppKit and not `MenuBarExtra`: the panel needs reliable keyboard focus, exact menu-bar anchoring,
+explicit dismissal, and control over status-item badge drawing.
 
 ## State
 
-Modern Observation only. `SettingsStore` is an `@MainActor @Observable` over an **injected**
-`UserDefaults` (not `@AppStorage`) so persistence is explicit and tests are isolated. Stores are
-owned by the `App` via `@State` and passed down by constructor. No `ObservableObject`/`@StateObject`.
+Modern Observation only. `SettingsStore` and `SchedulerModel` are `@MainActor @Observable` types.
+Stores are owned by the `App` via `@State` and passed down by constructor. No
+`ObservableObject`/`@StateObject`.
+
+`SchedulerModel` never performs repository or `launchctl` work on the main actor. Its frequent
+refresh reads only task metadata and the latest run's small status files. Full stdout/stderr history
+loads separately when an editor opens. Equal refreshes do not replace observable arrays, avoiding a
+panel redraw every polling interval.
 
 ## Data flow
 
-`StatusService` (in Core) produces an `AppStatus` value. The controller renders it through
-`MenuDescriptor` into the menu. A real app replaces `StatusService.current()` with its actual source
-(API, local computation, file) — keep that in Core and test it via `schedulercli`.
+`TaskRepository` reads and writes task/run data. `SchedulerModel` moves those calls to utility tasks
+and commits resulting `TaskSnapshot` values on the main actor. `PanelContentView` and the settings
+window render the same snapshots. The CLI calls `SchedulerCore` directly.
 
 ## Updates
 

@@ -11,7 +11,7 @@ enum Brand {
     /// `Color` here to lock in a brand color instead.
     static let accent: Color = .accentColor
 
-    /// SF Symbol shown in the menu bar (used by `StatusItemController`). Pick any
+    /// SF Symbol shown in the menu bar (used by `PanelController`). Pick any
     /// system symbol that reads well as a template image at ~16pt.
     static let statusSymbol: String = "timer"
 

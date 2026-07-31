@@ -183,6 +183,7 @@ private struct TaskEditorForm: View {
                 {
                     RunHistoryCard(
                         runs: self.model.runs(for: id),
+                        isLoading: self.model.loadingHistoryIDs.contains(id),
                         run: { self.model.runNow(id) },
                         isAcknowledged: {
                             self.model.isAttentionAcknowledged(taskID: id, run: $0)
@@ -274,6 +275,7 @@ private struct DayButton: View {
 
 private struct RunHistoryCard: View {
     let runs: [TaskRunResult]
+    let isLoading: Bool
     let run: () -> Void
     let isAcknowledged: (TaskRunResult) -> Bool
     let acknowledge: () -> Void
@@ -282,9 +284,12 @@ private struct RunHistoryCard: View {
     var body: some View {
         SettingsSection(title: "Run History") {
             HStack {
-                Text(self.runs.isEmpty ? "No runs yet" : "Latest \(min(self.runs.count, 50)) runs")
+                Text(self.historyLabel)
                     .foregroundStyle(.secondary)
                 Spacer()
+                if self.isLoading {
+                    ProgressView().controlSize(.small)
+                }
                 Button("Run Now", action: self.run)
             }
 
@@ -348,6 +353,11 @@ private struct RunHistoryCard: View {
 
     private var selectedResult: TaskRunResult {
         self.runs.first(where: { $0.id == self.selectedRunID }) ?? self.runs[0]
+    }
+
+    private var historyLabel: String {
+        if self.isLoading, self.runs.isEmpty { return "Loading run history…" }
+        return self.runs.isEmpty ? "No runs yet" : "Latest \(min(self.runs.count, 50)) runs"
     }
 
     private func symbol(for result: TaskRunResult) -> String {

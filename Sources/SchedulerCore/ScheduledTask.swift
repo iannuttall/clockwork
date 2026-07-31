@@ -197,7 +197,7 @@ public struct TaskRunResult: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
-public struct TaskSnapshot: Identifiable, Sendable {
+public struct TaskSnapshot: Codable, Equatable, Identifiable, Sendable {
     public var task: ScheduledTask
     public var lastRun: TaskRunResult?
 

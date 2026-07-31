@@ -15,6 +15,7 @@ All notable changes to Scheduler are documented here. This project follows
 - Added explicit task attention events with native macOS notifications and a menu-bar alert badge.
 - Added actionable next steps and persistent acknowledgement for attention events.
 - Switched the menu-bar icon to the timer SF Symbol.
+- Rebuilt the menu-bar UI as an instant, non-blocking panel and moved task/log I/O off the main thread.
 
 ## 0.1.0 - YYYY-MM-DD
 

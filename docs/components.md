@@ -173,7 +173,7 @@ ExternalLink("Documentation", url: "https://example.com/docs")
 
 Use SF Symbols everywhere: `Image(systemName: "gearshape")`. For menu-bar status
 images set `image.isTemplate = true` so the system tints them (see
-`StatusItemController` / `Brand.statusSymbol`).
+`PanelController` / `Brand.statusSymbol`).
 
 ## Theming / Brand
 

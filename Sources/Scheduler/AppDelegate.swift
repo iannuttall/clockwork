@@ -11,7 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var settings: SettingsStore?
     private var model: SchedulerModel?
-    private var statusItemController: StatusItemController?
+    private var panelController: PanelController?
     private var settingsWindowController: SettingsWindowController?
 
     func configure(_ dependencies: Dependencies) {
@@ -25,12 +25,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         guard let settings = self.settings, let model = self.model else { return }
+        NSApp.setActivationPolicy(.accessory)
         settings.registerAtLoginIfNeeded()
-        self.statusItemController = StatusItemController(
-            settings: settings,
+        let panelController = PanelController(
             model: model,
             updater: self.updater,
             openSettings: { self.openSettings() })
+        self.panelController = panelController
+
+        switch ProcessInfo.processInfo.environment["SCHEDULER_OPEN_ON_LAUNCH"] {
+        case "1":
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(400))
+                panelController.open()
+            }
+        case "settings":
+            self.openSettings()
+        default:
+            break
+        }
     }
 
     func openSettings() {

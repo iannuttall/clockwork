@@ -94,14 +94,21 @@ final class SchedulerModel {
     private let repository: TaskRepository
     private let launchAgents: LaunchAgentManager
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var operationTask: Task<Void, Never>?
+    @ObservationIgnored private var historyTasks: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var refreshRequested = false
     private var attentionRevision = 0
 
     var snapshots: [TaskSnapshot] = []
     var runHistory: [UUID: [TaskRunResult]] = [:]
+    var loadingHistoryIDs: Set<UUID> = []
     var selectedTaskID: UUID?
     var draft: TaskDraft?
     var errorMessage: String?
     var notice: String?
+    var isRefreshing = false
+    var isPerformingAction = false
 
     init(
         repository: TaskRepository = TaskRepository(),
@@ -111,6 +118,7 @@ final class SchedulerModel {
         self.repository = repository
         self.launchAgents = launchAgents
         self.defaults = defaults
+        self.snapshots = SchedulerSnapshotCache.load()
         self.refresh()
     }
 
@@ -118,21 +126,40 @@ final class SchedulerModel {
         self.snapshots.count { $0.task.isEnabled }
     }
 
+    var attentionStateRevision: Int {
+        self.attentionRevision
+    }
+
     func refresh() {
-        do {
-            let tasks = try self.repository.list()
-            let histories = Dictionary(uniqueKeysWithValues: tasks.map { task in
-                (task.id, self.repository.results(for: task.id))
-            })
-            self.runHistory = histories
-            self.snapshots = tasks.map { TaskSnapshot(task: $0, lastRun: histories[$0.id]?.first) }
-            if let selectedTaskID = self.selectedTaskID, !tasks.contains(where: { $0.id == selectedTaskID }) {
-                self.selectedTaskID = nil
-                self.draft = nil
+        guard self.refreshTask == nil else {
+            self.refreshRequested = true
+            return
+        }
+
+        self.isRefreshing = true
+        let repository = self.repository
+        self.refreshTask = Task { [weak self] in
+            let outcome = await Task.detached(priority: .utility) {
+                do {
+                    let tasks = try repository.list()
+                    let snapshots = tasks.map { task in
+                        TaskSnapshot(task: task, lastRun: repository.result(for: task.id, includeOutput: false))
+                    }
+                    return RefreshOutcome.loaded(snapshots)
+                } catch {
+                    return RefreshOutcome.failed(error.localizedDescription)
+                }
+            }.value
+
+            guard let self else { return }
+            self.apply(outcome)
+            self.refreshTask = nil
+            self.isRefreshing = false
+
+            if self.refreshRequested {
+                self.refreshRequested = false
+                self.refresh()
             }
-            self.errorMessage = nil
-        } catch {
-            self.errorMessage = error.localizedDescription
         }
     }
 
@@ -152,6 +179,7 @@ final class SchedulerModel {
         self.selectedTaskID = id
         self.draft = TaskDraft(task: task)
         self.notice = nil
+        self.loadHistory(for: id)
     }
 
     func cancelEditing() {
@@ -165,55 +193,63 @@ final class SchedulerModel {
             self.errorMessage = validationError
             return
         }
-        do {
-            let existing = self.snapshots.first(where: { $0.id == draft.id })?.task
-            let task = try self.repository.save(draft.task(existing: existing))
-            try self.launchAgents.sync(task)
-            self.selectedTaskID = task.id
-            self.draft = TaskDraft(task: task)
-            self.notice = "Saved"
-            self.refresh()
-        } catch {
-            self.errorMessage = error.localizedDescription
+        let existing = self.snapshots.first(where: { $0.id == draft.id })?.task
+        let task = draft.task(existing: existing)
+        let repository = self.repository
+        let launchAgents = self.launchAgents
+        self.performOperation {
+            do {
+                let saved = try repository.save(task)
+                try launchAgents.sync(saved)
+                return .saved(saved)
+            } catch {
+                return .failed(error.localizedDescription)
+            }
         }
     }
 
     func setEnabled(_ enabled: Bool, for id: UUID) {
         guard var task = self.snapshots.first(where: { $0.id == id })?.task else { return }
         task.isEnabled = enabled
-        do {
-            task = try self.repository.save(task)
-            try self.launchAgents.sync(task)
-            if self.draft?.id == id { self.draft?.isEnabled = enabled }
-            self.refresh()
-        } catch {
-            self.errorMessage = error.localizedDescription
+        let updatedTask = task
+        let repository = self.repository
+        let launchAgents = self.launchAgents
+        self.performOperation {
+            do {
+                let saved = try repository.save(updatedTask)
+                try launchAgents.sync(saved)
+                return .enabled(saved)
+            } catch {
+                return .failed(error.localizedDescription)
+            }
         }
     }
 
     func delete(_ id: UUID) {
         guard let task = self.snapshots.first(where: { $0.id == id })?.task else { return }
-        do {
-            try self.launchAgents.remove(task)
-            _ = try self.repository.delete(id: id)
-            self.cancelEditing()
-            self.refresh()
-        } catch {
-            self.errorMessage = error.localizedDescription
+        let repository = self.repository
+        let launchAgents = self.launchAgents
+        self.performOperation {
+            do {
+                try launchAgents.remove(task)
+                _ = try repository.delete(id: id)
+                return .deleted(id)
+            } catch {
+                return .failed(error.localizedDescription)
+            }
         }
     }
 
     func runNow(_ id: UUID) {
         guard let task = self.snapshots.first(where: { $0.id == id })?.task else { return }
-        do {
-            try self.launchAgents.runNow(task)
-            self.notice = "Started \(task.name)"
-            Task {
-                try? await Task.sleep(for: .milliseconds(250))
-                self.refresh()
+        let launchAgents = self.launchAgents
+        self.performOperation {
+            do {
+                try launchAgents.runNow(task)
+                return .started(task.name)
+            } catch {
+                return .failed(error.localizedDescription)
             }
-        } catch {
-            self.errorMessage = error.localizedDescription
         }
     }
 
@@ -243,6 +279,124 @@ final class SchedulerModel {
 
     private func attentionKey(_ taskID: UUID) -> String {
         "attention.acknowledgedThrough.\(taskID.uuidString.lowercased())"
+    }
+
+    private func loadHistory(for id: UUID) {
+        self.historyTasks[id]?.cancel()
+        self.loadingHistoryIDs.insert(id)
+        let repository = self.repository
+
+        self.historyTasks[id] = Task { [weak self] in
+            let runs = await Task.detached(priority: .utility) {
+                repository.results(for: id)
+            }.value
+
+            guard let self, !Task.isCancelled else { return }
+            self.runHistory[id] = runs
+            self.loadingHistoryIDs.remove(id)
+            self.historyTasks[id] = nil
+        }
+    }
+
+    private func performOperation(_ operation: @escaping @Sendable () -> OperationOutcome) {
+        guard self.operationTask == nil else { return }
+        self.errorMessage = nil
+        self.notice = nil
+        self.isPerformingAction = true
+
+        self.operationTask = Task { [weak self] in
+            let outcome = await Task.detached(priority: .userInitiated, operation: operation).value
+            guard let self else { return }
+            self.apply(outcome)
+            self.operationTask = nil
+            self.isPerformingAction = false
+        }
+    }
+
+    private func apply(_ outcome: RefreshOutcome) {
+        switch outcome {
+        case let .loaded(snapshots):
+            let changed = snapshots != self.snapshots
+            if changed { self.snapshots = snapshots }
+            if let selectedTaskID = self.selectedTaskID,
+               !snapshots.contains(where: { $0.id == selectedTaskID })
+            {
+                self.selectedTaskID = nil
+                self.draft = nil
+            }
+            self.errorMessage = nil
+            if changed {
+                Task.detached(priority: .background) {
+                    SchedulerSnapshotCache.save(snapshots)
+                }
+            }
+        case let .failed(message):
+            self.errorMessage = message
+        }
+    }
+
+    private func apply(_ outcome: OperationOutcome) {
+        switch outcome {
+        case let .saved(task):
+            self.selectedTaskID = task.id
+            self.draft = TaskDraft(task: task)
+            self.notice = "Saved"
+            self.refresh()
+            self.loadHistory(for: task.id)
+        case let .enabled(task):
+            if self.draft?.id == task.id { self.draft?.isEnabled = task.isEnabled }
+            self.refresh()
+        case let .deleted(id):
+            self.runHistory.removeValue(forKey: id)
+            self.cancelEditing()
+            self.refresh()
+        case let .started(name):
+            self.notice = "Started \(name)"
+            Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(250))
+                self?.refresh()
+                if let id = self?.selectedTaskID {
+                    self?.loadHistory(for: id)
+                }
+            }
+        case let .failed(message):
+            self.errorMessage = message
+        }
+    }
+
+    private enum RefreshOutcome {
+        case loaded([TaskSnapshot])
+        case failed(String)
+    }
+
+    private enum OperationOutcome {
+        case saved(ScheduledTask)
+        case enabled(ScheduledTask)
+        case deleted(UUID)
+        case started(String)
+        case failed(String)
+    }
+}
+
+private enum SchedulerSnapshotCache {
+    private static var url: URL? {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("com.iannuttall.scheduler", isDirectory: true)
+            .appendingPathComponent("snapshot.json")
+    }
+
+    static func load() -> [TaskSnapshot] {
+        guard let url = self.url,
+              let data = try? Data(contentsOf: url),
+              let snapshots = try? JSONDecoder().decode([TaskSnapshot].self, from: data)
+        else { return [] }
+        return snapshots
+    }
+
+    static func save(_ snapshots: [TaskSnapshot]) {
+        guard let url = self.url, let data = try? JSONEncoder().encode(snapshots) else { return }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: url, options: .atomic)
     }
 }
 

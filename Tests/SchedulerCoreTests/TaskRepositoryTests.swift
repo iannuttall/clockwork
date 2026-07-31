@@ -73,4 +73,30 @@ struct TaskRepositoryTests {
         #expect(history.first?.standardOutput == "second\n")
         #expect(TaskRepository(paths: paths).results(for: id, limit: 1).count == 1)
     }
+
+    @Test func `latest result follows pointer without loading output`() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = SchedulerPaths(root: root)
+        try paths.prepare()
+        let id = UUID()
+        let runs = paths.runsDirectory(for: id)
+
+        for (runID, started, output) in [("older", 100, "old output"), ("current", 200, "large output")] {
+            let directory = runs.appendingPathComponent(runID)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try Data("\(started)\n".utf8).write(to: directory.appendingPathComponent("started"))
+            try Data("\(started + 2)\n".utf8).write(to: directory.appendingPathComponent("finished"))
+            try Data("0\n".utf8).write(to: directory.appendingPathComponent("exit"))
+            try Data(output.utf8).write(to: directory.appendingPathComponent("stdout.log"))
+        }
+        try Data("current\n".utf8).write(to: paths.resultDirectory(for: id).appendingPathComponent("latest"))
+
+        let summary = try #require(TaskRepository(paths: paths).result(for: id, includeOutput: false))
+        #expect(summary.id == "current")
+        #expect(summary.standardOutput.isEmpty)
+
+        let fullResult = try #require(TaskRepository(paths: paths).result(for: id))
+        #expect(fullResult.standardOutput == "large output")
+    }
 }

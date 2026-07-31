@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 Scheduler is a native macOS menu bar app: SwiftPM (no Xcode project), AppKit
-`NSStatusItem` + a native `NSMenu` whose rows are SwiftUI views, distributed Developer-ID-direct
+`NSStatusItem` + a keyable `NSPanel` hosting SwiftUI, distributed Developer-ID-direct
 with Sparkle auto-update. This file is the contract for human and AI contributors. Read it before
 making changes.
 
@@ -9,8 +9,8 @@ making changes.
 
 - `Sources/SchedulerCore/` — portable domain logic (models, services). Compiles on Linux; no AppKit.
 - `Sources/schedulercli/` — a headless CLI over Core, so logic is testable without an app bundle.
-- `Sources/Scheduler/` — the macOS app (thin UI). `SchedulerApp.swift` is the `@main` entry; the menu
-  lives in `StatusItemController.swift`; menu content is data described by `MenuDescriptor.swift`.
+- `Sources/Scheduler/` — the macOS app (thin UI). `SchedulerApp.swift` is the `@main` entry;
+  `PanelController.swift` owns the status item and panel, and `PanelContentView.swift` renders it.
 - `Tests/SchedulerCoreTests/` (macOS) and `Tests/SchedulerCoreLinuxTests/` (the portable subset).
 - `Scripts/` — build/sign/notarize/appcast tooling. Prefer these over raw `swift`/`codesign`.
 - `app.config.json` — identity, distribution, feed URL. Single source of truth for app metadata.
