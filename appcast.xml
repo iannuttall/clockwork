@@ -5,5 +5,33 @@
         <link>https://raw.githubusercontent.com/iannuttall/clockwork/main/appcast.xml</link>
         <description>Clockwork updates</description>
         <language>en</language>
+        <item>
+            <title>0.1.0</title>
+            <pubDate>Mon, 03 Aug 2026 16:41:16 +0100</pubDate>
+            <sparkle:version>1</sparkle:version>
+            <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+<h2>Clockwork 0.1.0</h2>
+<ul>
+<li>Added the final Clockwork logo and app icon.</li>
+<li>Renamed the app from its private Scheduler working title to Clockwork.</li>
+<li>Added a one-time migration for existing Scheduler tasks, run history, and launch agents, including closing the old app before migration.</li>
+<li>Added universal DMG packaging, checksum generation, release preflight checks, and end-to-end CI packaging verification.</li>
+<li>Added public repository documentation, an MIT license, third-party notices, and GitHub funding metadata.</li>
+<li>Added human-friendly interval, daily, and weekday schedules.</li>
+<li>Added task creation, editing, disabling, deletion, and manual runs.</li>
+<li>Added native launchd jobs so tasks run without keeping a window open.</li>
+<li>Added last-run status, exit codes, stdout, and stderr.</li>
+<li>Added an installable CLI with JSON output for humans and AI agents.</li>
+<li>Added common cron expression explanations.</li>
+<li>Added explicit task attention events with native macOS notifications and a menu-bar alert badge.</li>
+<li>Added actionable next steps and persistent acknowledgement for attention events.</li>
+<li>Switched the menu-bar icon to the timer SF Symbol.</li>
+<li>Rebuilt the menu-bar UI as an instant, non-blocking panel and moved task/log I/O off the main thread.</li>
+</ul>
+]]></description>
+            <enclosure url="https://github.com/iannuttall/clockwork/releases/download/v0.1.0/Clockwork-0.1.0.dmg" length="4251376" type="application/octet-stream" sparkle:edSignature="qsyZNE6+iKA2DTH03WlBxSORMMcdiyrcXD+PRw4k33pSk0KB++6MgsN25pQwiwecKor9IDMDnmStLLhqMUTVDA=="/>
+        </item>
     </channel>
 </rss>
