@@ -4,7 +4,7 @@
 
 # Clockwork
 
-**Run recurring commands on your Mac without learning crontab.**
+**Run recurring commands on your Mac without learning launchd.**
 
 [Download for macOS](https://github.com/iannuttall/clockwork/releases/latest) ·
 [Report a problem](https://github.com/iannuttall/clockwork/issues) · [MIT licensed](LICENSE)
