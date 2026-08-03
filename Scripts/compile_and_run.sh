@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Dev loop: kill any running instance, build + package a debug .app, launch it,
-# and verify it stays running. This is what `macos dev` runs.
+# and verify it stays running. This is what `make dev` runs.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -20,6 +20,7 @@ fail() {
 
 # --- Kill any running instance -----------------------------------------------
 log "==> Killing existing $APP_NAME instances"
+pkill -x Scheduler 2>/dev/null || true
 for _ in {1..15}; do
     pkill -x "$APP_NAME" 2>/dev/null || true
     pkill -f "$PROCESS_PATTERN" 2>/dev/null || true

@@ -1,16 +1,5 @@
 #!/usr/bin/env bash
-# Sign (Developer ID, hardened runtime), notarize, and staple Scheduler.app, then
-# produce the final distributable zip.
-#
-# Requires a release bundle built by package_app.sh (run it first, or this script
-# will build one). Requires these env vars (exported by the orchestrator):
-#   APP_IDENTITY   e.g. "Developer ID Application: Name (TEAMID)"
-#   ASC_KEY_ID     App Store Connect API key id
-#   ASC_ISSUER_ID  App Store Connect issuer id
-#   ASC_KEY_PATH   path to the .p8 key file
-#
-# Echoes the final notarized zip path as the last line of stdout:
-#   .build/artifacts/Scheduler-<MARKETING_VERSION>-universal.zip
+# Build, Developer ID sign, notarize, staple, and verify the Clockwork DMG.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -20,7 +9,7 @@ cd "$ROOT"
 source "$ROOT/version.env"
 # shellcheck source=/dev/null
 source "$ROOT/Scripts/config.env"
-if command -v node >/dev/null 2>&1 && [[ -f "$ROOT/app.config.json" ]]; then
+if command -v node >/dev/null 2>&1; then
     APP_CONFIG_ENV=$(node "$ROOT/Scripts/lib/app_config.mjs" env "$ROOT/app.config.json")
     # shellcheck source=/dev/null
     source <(printf '%s\n' "$APP_CONFIG_ENV")
@@ -28,129 +17,97 @@ fi
 # shellcheck source=/dev/null
 source "$ROOT/Scripts/sparkle_paths.sh"
 
+"$ROOT/Scripts/validate_changelog.sh"
+
+# Natter and Portman use SIGN_IDENTITY, while the shared macOS scripts use
+# APP_IDENTITY. Accept both so this app can use the same release environment.
+APP_IDENTITY="${APP_IDENTITY:-${SIGN_IDENTITY:-}}"
+NOTARY_PROFILE="${NOTARY_PROFILE:-}"
+
 : "${APP_NAME:?config.env must set APP_NAME}"
-: "${BUNDLE_ID:?config.env must set BUNDLE_ID}"
 : "${MARKETING_VERSION:?version.env must set MARKETING_VERSION}"
-
-: "${APP_IDENTITY:?Set APP_IDENTITY (Developer ID Application: Name (TEAMID))}"
-: "${ASC_KEY_ID:?Set ASC_KEY_ID (App Store Connect key id)}"
-: "${ASC_ISSUER_ID:?Set ASC_ISSUER_ID (App Store Connect issuer id)}"
-: "${ASC_KEY_PATH:?Set ASC_KEY_PATH (path to the .p8 key)}"
-
-if [[ ! -f "$ASC_KEY_PATH" ]]; then
-    echo "ERROR: ASC_KEY_PATH does not point at a file: $ASC_KEY_PATH" >&2
+: "${APP_IDENTITY:?Set APP_IDENTITY or SIGN_IDENTITY to a Developer ID Application identity}"
+if [[ -z "$NOTARY_PROFILE" ]]; then
+    : "${ASC_KEY_ID:?Set NOTARY_PROFILE or ASC_KEY_ID}"
+    : "${ASC_ISSUER_ID:?Set ASC_ISSUER_ID when using an API key}"
+    : "${ASC_KEY_PATH:?Set ASC_KEY_PATH when using an API key}"
+    [[ -f "$ASC_KEY_PATH" ]] || {
+        echo "ERROR: App Store Connect key not found: $ASC_KEY_PATH" >&2
+        exit 1
+    }
+fi
+[[ -n "${SPARKLE_PUBLIC_KEY:-}" ]] || { echo "ERROR: Set the Sparkle public key before release." >&2; exit 1; }
+[[ -d "$ROOT/Resources/AppIcon.icon" ]] || {
+    echo "ERROR: Add the final Icon Composer project at Resources/AppIcon.icon before release." >&2
+    exit 1
+}
+if pgrep -x "$APP_NAME" >/dev/null 2>&1; then
+    echo "ERROR: Quit every running copy of $APP_NAME before making a release." >&2
     exit 1
 fi
 
+APP=$("$ROOT/Scripts/package_app.sh" release | tail -n1)
 CLI_NAME="$(printf '%s' "$APP_NAME" | tr '[:upper:]' '[:lower:]')cli"
-
-# Build the release bundle if it does not already exist.
-APP="$ROOT/.build/package/$APP_NAME.app"
-if [[ ! -d "$APP" ]]; then
-    echo "==> No release bundle found; building one" >&2
-    APP=$("$ROOT/Scripts/package_app.sh" release | tail -n1)
-fi
-if [[ ! -d "$APP" ]]; then
-    echo "ERROR: Release app bundle not found: $APP" >&2
-    exit 1
-fi
-
-ARTIFACTS_DIR="$ROOT/.build/artifacts"
-mkdir -p "$ARTIFACTS_DIR"
-
-# --- Entitlements (hardened runtime, Developer ID; no app-sandbox) -----------
-ENTITLEMENTS=$(mktemp "${TMPDIR:-/tmp}/${APP_NAME}-entitlements.XXXXXX.plist")
-trap 'rm -f "$ENTITLEMENTS"' EXIT
-cat > "$ENTITLEMENTS" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <!-- Developer ID distribution: hardened runtime, NO app-sandbox.
-         Add narrow entitlements here only when the app actually needs them.
-
-         If this app uses a shared app group (e.g. a widget), enable it here:
-    <key>com.apple.security.application-groups</key>
-    <array>
-        <string>${TEAM_ID:-TEAMID}.${BUNDLE_ID}</string>
-    </array>
-    -->
-</dict>
-</plist>
-PLIST
-
 SIGN=(codesign --force --timestamp --options runtime --sign "$APP_IDENTITY")
 
-echo "==> Signing with: $APP_IDENTITY" >&2
-
-# Sign inside-out: Sparkle nested components, then the CLI helper, then the app.
-SPARKLE_FW="$APP/Contents/Frameworks/Sparkle.framework"
-if [[ -d "$SPARKLE_FW" ]]; then
-    echo "==> Signing Sparkle components" >&2
+echo "==> Signing with $APP_IDENTITY" >&2
+if [[ -d "$APP/Contents/Frameworks/Sparkle.framework" ]]; then
     while IFS= read -r target; do
         [[ -n "$target" ]] && "${SIGN[@]}" "$target"
-    done < <(sparkle_signing_targets "$SPARKLE_FW")
+    done < <(sparkle_signing_targets "$APP/Contents/Frameworks/Sparkle.framework")
 fi
+"${SIGN[@]}" "$APP/Contents/MacOS/$CLI_NAME"
+"${SIGN[@]}" "$APP"
 
-if [[ -f "$APP/Contents/MacOS/$CLI_NAME" ]]; then
-    "${SIGN[@]}" "$APP/Contents/MacOS/$CLI_NAME"
-fi
+codesign --verify --deep --strict "$APP"
+SIGN_INFO=$(codesign -d --verbose=2 "$APP" 2>&1 || true)
+[[ "$SIGN_INFO" == *"flags="*"runtime"* ]] || {
+    echo "ERROR: Hardened runtime is missing from the signed app." >&2
+    exit 1
+}
 
-echo "==> Signing app bundle" >&2
-"${SIGN[@]}" --entitlements "$ENTITLEMENTS" "$APP"
-
-# --- Notarize ----------------------------------------------------------------
-NOTARIZE_ZIP="$ARTIFACTS_DIR/${APP_NAME}-notarize.zip"
-rm -f "$NOTARIZE_ZIP"
-echo "==> Zipping for notarization" >&2
-/usr/bin/ditto --norsrc -c -k --keepParent "$APP" "$NOTARIZE_ZIP"
-
-echo "==> Submitting to notarytool (waits for result)" >&2
-xcrun notarytool submit "$NOTARIZE_ZIP" \
-    --key "$ASC_KEY_PATH" \
-    --key-id "$ASC_KEY_ID" \
-    --issuer "$ASC_ISSUER_ID" \
-    --wait
-rm -f "$NOTARIZE_ZIP"
-
-echo "==> Stapling ticket" >&2
-xcrun stapler staple "$APP"
-
-# Re-strip xattrs before the final zip so no AppleDouble files sneak in.
-xattr -cr "$APP"
-find "$APP" -name '._*' -delete
-
-FINAL_ZIP="$ARTIFACTS_DIR/${APP_NAME}-${MARKETING_VERSION}-universal.zip"
-rm -f "$FINAL_ZIP"
-echo "==> Creating final artifact" >&2
-/usr/bin/ditto --norsrc -c -k --keepParent "$APP" "$FINAL_ZIP"
-
-# --- dSYM ---------------------------------------------------------------------
-DSYM="$ARTIFACTS_DIR/${APP_NAME}.dSYM"
-DSYM_ZIP="${FINAL_ZIP%.zip}.dSYM.zip"
-rm -rf "$DSYM" "$DSYM_ZIP"
-if command -v dsymutil >/dev/null 2>&1; then
-    echo "==> Creating dSYM" >&2
-    dsymutil "$APP/Contents/MacOS/$APP_NAME" -o "$DSYM"
-    if command -v dwarfdump >/dev/null 2>&1; then
-        BIN_UUIDS=$(dwarfdump --uuid "$APP/Contents/MacOS/$APP_NAME" | awk '{print $2}' | sort | tr '\n' ' ')
-        DSYM_UUIDS=$(dwarfdump --uuid "$DSYM" | awk '{print $2}' | sort | tr '\n' ' ')
-        if [[ "$BIN_UUIDS" != "$DSYM_UUIDS" ]]; then
-            echo "ERROR: dSYM UUIDs do not match app binary." >&2
-            echo "       binary: $BIN_UUIDS" >&2
-            echo "       dSYM:   $DSYM_UUIDS" >&2
-            exit 1
-        fi
+LAUNCH_PID=""
+cleanup_launch() {
+    if [[ -n "$LAUNCH_PID" ]] && kill -0 "$LAUNCH_PID" 2>/dev/null; then
+        kill "$LAUNCH_PID" 2>/dev/null || true
     fi
-    /usr/bin/ditto --norsrc -c -k --keepParent "$DSYM" "$DSYM_ZIP"
+}
+trap cleanup_launch EXIT
+"$APP/Contents/MacOS/$APP_NAME" >/dev/null 2>&1 &
+LAUNCH_PID=$!
+sleep 5
+if kill -0 "$LAUNCH_PID" 2>/dev/null; then
+    kill "$LAUNCH_PID"
+    wait "$LAUNCH_PID" 2>/dev/null || true
+    LAUNCH_PID=""
 else
-    echo "WARN: dsymutil not found; skipping dSYM artifact." >&2
+    wait "$LAUNCH_PID" 2>/dev/null || true
+    echo "ERROR: The signed app exited during its launch check." >&2
+    exit 1
 fi
 
-# --- Verify ------------------------------------------------------------------
-echo "==> Verifying (spctl + stapler)" >&2
-spctl -a -t exec -vv "$APP"
-stapler validate "$APP"
+ARTIFACTS="$ROOT/.build/artifacts"
+mkdir -p "$ARTIFACTS"
+DMG="$ARTIFACTS/$APP_NAME-$MARKETING_VERSION.dmg"
+CHECKSUM="$DMG.sha256"
+"$ROOT/Scripts/build_dmg.sh" "$APP" "$DMG" >/dev/null
 
-echo "==> Done: $FINAL_ZIP" >&2
-echo "$FINAL_ZIP"
+codesign --force --timestamp --sign "$APP_IDENTITY" "$DMG"
+if [[ -n "$NOTARY_PROFILE" ]]; then
+    xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait
+else
+    xcrun notarytool submit "$DMG" \
+        --key "$ASC_KEY_PATH" \
+        --key-id "$ASC_KEY_ID" \
+        --issuer "$ASC_ISSUER_ID" \
+        --wait
+fi
+xcrun stapler staple "$DMG"
+xcrun stapler validate "$DMG"
+spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG"
+
+SHA256=$(shasum -a 256 "$DMG" | cut -d' ' -f1)
+printf '%s  %s\n' "$SHA256" "$(basename "$DMG")" > "$CHECKSUM"
+
+echo "$DMG"
+echo "$CHECKSUM"

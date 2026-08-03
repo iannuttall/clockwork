@@ -1,58 +1,77 @@
-# Repository Guidelines
+# Repository guidelines
 
-Scheduler is a native macOS menu bar app: SwiftPM (no Xcode project), AppKit
-`NSStatusItem` + a keyable `NSPanel` hosting SwiftUI, distributed Developer-ID-direct
-with Sparkle auto-update. This file is the contract for human and AI contributors. Read it before
-making changes.
+Clockwork is a native macOS menu bar app for scheduling recurring commands with `launchd`. It uses Swift 6.2, SwiftPM, AppKit for the status item and panel, SwiftUI for content, and Sparkle for direct updates. There is no Xcode project.
+
+Read this file before changing anything. The rules below include product contracts and bugs that are easy to reintroduce.
 
 ## Project structure
 
-- `Sources/SchedulerCore/` — portable domain logic (models, services). Compiles on Linux; no AppKit.
-- `Sources/schedulercli/` — a headless CLI over Core, so logic is testable without an app bundle.
-- `Sources/Scheduler/` — the macOS app (thin UI). `SchedulerApp.swift` is the `@main` entry;
-  `PanelController.swift` owns the status item and panel, and `PanelContentView.swift` renders it.
-- `Tests/SchedulerCoreTests/` (macOS) and `Tests/SchedulerCoreLinuxTests/` (the portable subset).
-- `Scripts/` — build/sign/notarize/appcast tooling. Prefer these over raw `swift`/`codesign`.
-- `app.config.json` — identity, distribution, feed URL. Single source of truth for app metadata.
+- `Sources/ClockworkCore/` contains portable schedules, storage, launch-agent generation, run history, and migration logic. It must not import AppKit or SwiftUI.
+- `Sources/clockworkcli/` contains the headless CLI over Core.
+- `Sources/Clockwork/` contains the macOS app. The UI stays thin and sends disk and `launchctl` work to Core off the main actor.
+- `Tests/ClockworkCoreTests/` contains macOS tests. `Tests/ClockworkCoreLinuxTests/` contains the portable subset used by Linux CI.
+- `Scripts/` contains build, install, DMG, Developer ID signing, notarization, and appcast tools.
+- `app.config.json` is the source of truth for public app identity. `version.env` owns version numbers.
 
-## Build, test, run
+## Build, test, and run
 
-- `macos dev scheduler` (or `make dev`) — build, ad-hoc sign, launch into the menu bar. The dev loop.
-- `swift test` (or `make test`) — run the suite (Swift Testing).
-- `make check` — format + lint + test. **Run this after any change and fix everything it reports.**
-- `macos release scheduler` — full release; never hand-run the signing steps.
+- `make dev` builds an app bundle, ad-hoc signs it, launches it, and verifies the process stays alive.
+- `make check` formats, lints, and runs tests. Run it after every source change.
+- `swift test` runs the Swift Testing suite.
+- `make package` builds an unsigned universal release bundle.
+- `make dmg` wraps the universal bundle in a local test DMG.
+- `make release` signs, notarizes, staples, and creates the final DMG and checksum. Do not run signing steps by hand.
 
-## Coding style
+## Code style
 
-- Run `swiftformat Sources Tests` and `swiftlint --strict`. 4-space indent, ~120-col lines.
-- **Explicit `self` is intentional** (Swift 6 concurrency) — do not strip it.
-- Modern Observation only: `@Observable` models with `@State` ownership and `@Bindable` in views.
-  Do **not** use `ObservableObject`, `@ObservedObject`, or `@StateObject`.
-- Prefer modern macOS 14+ APIs over deprecated counterparts. Keep files small (<~500 lines); split
-  large `@MainActor` types into `Type+Concern.swift` extensions.
-- Put business/parse logic in `SchedulerCore` (and cover it with a test) — keep the app target thin.
+- Run SwiftFormat and SwiftLint through `make check`.
+- Four-space indentation and explicit `self` are intentional.
+- Use `@Observable`, `@State`, and `@Bindable`. Do not add Combine observation types.
+- Core behavior needs a pure test. UI types should stay thin.
+- Comments explain a scheduling, launchd, concurrency, or UI constraint, not the line below them.
 
-## Testing
+## Product contracts and traps
 
-- Swift Testing (`import Testing`, `@Test`, `#expect`/`#require`, backtick names). Suites are structs.
-- Test Core via the library or the CLI — avoid tests that need a running app bundle.
-- New behavior in Core needs a test; a Linux-safe test goes in `SchedulerCoreLinuxTests`.
+**launchd owns scheduled execution.** A task must keep running when Clockwork is closed. Do not replace launch agents with an in-app timer.
 
-## Agent notes (operational rules — read these)
+**The panel opens from a warm snapshot.** Disk reads, run-history parsing, wrapper generation, and `launchctl` calls must stay off the main actor. Opening the panel must not block on them.
 
-- **Validate the build you think you're validating.** After changing app code, relaunch cleanly:
-  `pkill -x Scheduler || pkill -f Scheduler.app || true; macos dev scheduler`. A copy from another checkout
-  can look identical in the menu bar — confirm with `pgrep -af "Scheduler.app/Contents/MacOS/Scheduler"`.
-- **Never trigger Keychain prompts in tests or checks.** The credential store uses file storage in
-  DEBUG for exactly this reason. Use stubs/test stores; never call UI-prompting `SecItem*` from tests.
-  (`KeychainPromptSafetyAuditTests` enforces this — keep it green.)
-- **Don't add dependencies or tooling without confirmation.** This app ships Foundation + Sparkle.
-- **Don't commit secrets.** Signing/notary/Sparkle material lives in `~/.config/macos`, never here.
-- Keep `app.config.json` authoritative; if you change identity/distribution, update it (the CLI and
-  `Scripts/config.env` read from it).
+**The panel owns its size.** Do not use intrinsic hosting-view sizing. Live task changes would move the panel away from the menu bar.
 
-## Commits & PRs
+**The timer is a template image.** Set `isTemplate` on the final normal-state `NSImage`. Do not set `contentTintColor`. Both details are required for light and dark menu bars.
 
-Conventional commits (`feat:`, `fix:`, `chore:`). One logical change per commit. The top
-`CHANGELOG.md` section is user-facing release-notes prose — update it for anything users notice; it
-feeds the GitHub release and the Sparkle appcast verbatim.
+**Attention has one orange badge.** Draw the timer in `labelColor` and the badge in `systemOrange` inside a deferred image handler. The badged image cannot be a template. Leave `contentTintColor` nil.
+
+**Attention is explicit.** A nonzero exit code is a failure, not an attention event. Only the event file or `clockwork attention` creates the orange badge and notification. Notify once per run and preserve acknowledgement until a newer event appears.
+
+**Shell input must stay quoted.** Task names and working directories are user input. Keep wrapper generation in Core, quote paths safely, use atomic status files, and retain no more than the latest 50 runs.
+
+**Every changed launch agent must be reconciled.** Save, enable, disable, and delete operations must update both task storage and the corresponding launch agent. Never leave an old enabled job behind after changing its schedule.
+
+**The Scheduler migration is one-time and retryable.** Existing private pre-release data moves from `Application Support/Scheduler`. Old `com.iannuttall.scheduler.task.*` jobs are removed only after the data move, and the marker remains until every Clockwork job is registered successfully.
+
+**The old Scheduler app must be closed before migration.** Clockwork asks the private pre-release app to terminate before starting its first refresh. Dev and install scripts also close it. Otherwise the old process can recreate jobs while their files are moving.
+
+**Development builds do not run Sparkle.** Debug packaging leaves the feed and public key out on purpose. Public release builds require the final icon, feed URL, and public key.
+
+**Never trigger a Keychain prompt in tests.** Do not add `SecItem*` calls to test paths. `KeychainPromptSafetyAuditTests` enforces this rule.
+
+## Verification
+
+After app changes run `make check`, then `make dev`. Confirm the exact bundle is running:
+
+```sh
+pgrep -af "Clockwork.app/Contents/MacOS/Clockwork"
+```
+
+Inspect shared state through the bundled CLI:
+
+```sh
+.build/package/Clockwork.app/Contents/MacOS/clockworkcli list --json
+```
+
+For packaging changes, run `make package`, verify both bundled executables contain `arm64` and `x86_64`, then run `make dmg` and `hdiutil verify` on the result. A compile alone is not proof that the app bundle launches or that `launchd` accepted a job.
+
+## Commits and releases
+
+Use conventional commits such as `feat:`, `fix:`, and `chore:`. Update `CHANGELOG.md` for anything a user notices. Never commit certificates, App Store Connect keys, Sparkle private keys, or values from `~/.config/macos`.

@@ -4,15 +4,15 @@ import PackageDescription
 // Sparkle (auto-update) is a macOS-only, app-target-only dependency. Core and the
 // CLI stay portable so they build and test on Linux CI without an app bundle.
 let package = Package(
-    name: "Scheduler",
+    name: "Clockwork",
     defaultLocalization: "en",
     platforms: [
         .macOS(.v14),
     ],
     products: [
-        .library(name: "SchedulerCore", targets: ["SchedulerCore"]),
-        .executable(name: "schedulercli", targets: ["schedulercli"]),
-        .executable(name: "Scheduler", targets: ["Scheduler"]),
+        .library(name: "ClockworkCore", targets: ["ClockworkCore"]),
+        .executable(name: "clockworkcli", targets: ["clockworkcli"]),
+        .executable(name: "Clockwork", targets: ["Clockwork"]),
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.3"),
@@ -20,22 +20,22 @@ let package = Package(
     targets: [
         // Portable domain logic. No AppKit/SwiftUI — compiles on Linux.
         .target(
-            name: "SchedulerCore",
+            name: "ClockworkCore",
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency"),
             ]),
         // Headless proof that Core is usable without an app bundle: prints state as JSON.
         .executableTarget(
-            name: "schedulercli",
-            dependencies: ["SchedulerCore"],
+            name: "clockworkcli",
+            dependencies: ["ClockworkCore"],
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency"),
             ]),
         // The macOS menu bar app. Sparkle is linked here only.
         .executableTarget(
-            name: "Scheduler",
+            name: "Clockwork",
             dependencies: [
-                "SchedulerCore",
+                "ClockworkCore",
                 .product(name: "Sparkle", package: "Sparkle"),
             ],
             resources: [
@@ -47,17 +47,17 @@ let package = Package(
             ]),
         // macOS unit tests over Core (Swift Testing).
         .testTarget(
-            name: "SchedulerCoreTests",
-            dependencies: ["SchedulerCore"],
+            name: "ClockworkCoreTests",
+            dependencies: ["ClockworkCore"],
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency"),
                 .enableExperimentalFeature("SwiftTesting"),
             ]),
         // The portable subset that also runs on Linux CI.
         .testTarget(
-            name: "SchedulerCoreLinuxTests",
-            dependencies: ["SchedulerCore"],
-            path: "Tests/SchedulerCoreLinuxTests",
+            name: "ClockworkCoreLinuxTests",
+            dependencies: ["ClockworkCore"],
+            path: "Tests/ClockworkCoreLinuxTests",
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency"),
                 .enableExperimentalFeature("SwiftTesting"),

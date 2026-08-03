@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
-        <title>Scheduler</title>
-        <link>https://raw.githubusercontent.com/your-org/Scheduler/main/appcast.xml</link>
-        <description>Scheduler updates</description>
+        <title>Clockwork</title>
+        <link>https://raw.githubusercontent.com/iannuttall/clockwork/main/appcast.xml</link>
+        <description>Clockwork updates</description>
         <language>en</language>
     </channel>
 </rss>

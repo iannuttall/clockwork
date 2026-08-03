@@ -4,59 +4,75 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  SWIFT_VERSION: "6.2"
-
 jobs:
-  lint:
-    runs-on: macos-15
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install SwiftLint / SwiftFormat
-        run: brew install swiftformat swiftlint
-
-      - name: Lint
-        run: ./Scripts/lint.sh lint
-
-  build-test-linux:
-    runs-on: ubuntu-latest
+  lint-and-test:
+    runs-on: macos-26
     timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install formatting tools
+        run: brew install swiftformat swiftlint
+      - name: Check and test
+        run: make check
+      - name: Validate release scripts
+        run: |
+          bash -n Scripts/*.sh
+          node --check Scripts/lib/app_config.mjs
+          node --check Scripts/lib/appcast_update.mjs
+      - name: Build universal release bundle
+        run: make package
+      - name: Verify universal executables
+        run: |
+          verify_archs() {
+            archs="$(lipo -archs "$1")"
+            [[ " $archs " == *" arm64 "* ]]
+            [[ " $archs " == *" x86_64 "* ]]
+          }
+          verify_archs .build/package/Clockwork.app/Contents/MacOS/Clockwork
+          verify_archs .build/package/Clockwork.app/Contents/MacOS/clockworkcli
+          find .build/package/Clockwork.app/Contents/Frameworks/Sparkle.framework \
+            -type f -perm -111 -print0 | while IFS= read -r -d '' item; do
+              if file "$item" | grep -q 'Mach-O'; then
+                verify_archs "$item"
+              fi
+            done
+      - name: Build and verify DMG
+        run: |
+          Scripts/build_dmg.sh \
+            "$PWD/.build/package/Clockwork.app" \
+            "$PWD/.build/artifacts/Clockwork-ci.dmg"
+          hdiutil verify .build/artifacts/Clockwork-ci.dmg
+      - name: Build ad-hoc signed launch bundle
+        run: ./Scripts/package_app.sh debug
+      - name: Verify app and Sparkle signatures
+        run: codesign --verify --deep --strict --verbose=1 .build/package/Clockwork.app
+      - name: Verify the bundle launches
+        run: |
+          .build/package/Clockwork.app/Contents/MacOS/Clockwork & PID=$!
+          sleep 6
+          if kill -0 "$PID" 2>/dev/null; then
+            kill "$PID"
+          else
+            echo "::error::Clockwork exited during launch"
+            exit 1
+          fi
+
+  portable-core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     container:
       image: swift:6.2
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Swift version
-        run: swift --version
-
-      - name: Build portable targets (static stdlib)
+      - uses: actions/checkout@v7
+      - name: Build the CLI and core
         run: |
-          swift build -c release --product schedulercli --static-swift-stdlib
-          swift build -c release --target SchedulerCore --static-swift-stdlib
-
-      - name: Test portable targets
-        run: swift test --filter SchedulerCoreLinuxTests
-
-  test-macos:
-    runs-on: macos-15
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Show tool versions
-        run: |
-          swift --version
-          xcodebuild -version || true
-
-      - name: Resolve packages
-        run: swift package resolve
-
-      - name: Swift test
-        run: swift test
+          swift build -c release --product clockworkcli --static-swift-stdlib
+          swift build -c release --target ClockworkCore --static-swift-stdlib
+      - name: Test portable behavior
+        run: swift test --filter ClockworkCoreLinuxTests

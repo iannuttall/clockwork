@@ -1,32 +1,24 @@
 ---
-name: qa-scheduler
-description: Build, launch, and verify Scheduler in the menu bar after a change. Confirms the running build is the one you just built.
+name: qa-clockwork
+description: Build, launch, and verify Clockwork after a code or packaging change.
 ---
 
-# QA Scheduler
+# QA Clockwork
 
-Use this to verify a change actually works in the real app.
+1. Run `make check` and fix every failure.
+2. Run `make dev` to build, ad-hoc sign, launch, and perform the process check.
+3. Confirm the exact bundle is running:
 
-## Loop
-
-1. `make check` — format + lint + test. Fix everything it reports before going further.
-2. Relaunch cleanly so you never validate a stale build:
+   ```sh
+   pgrep -af "Clockwork.app/Contents/MacOS/Clockwork"
    ```
-   pkill -x Scheduler || pkill -f Scheduler.app || true
-   macos dev scheduler
-   ```
-3. Confirm the build you're looking at is the one you just built:
-   ```
-   pgrep -af "Scheduler.app/Contents/MacOS/Scheduler"
-   ```
-4. Verify behavior:
-   - The status item appears in the menu bar; clicking it opens the menu.
-   - The menu rows reflect the current `AppStatus` (cross-check with `swift run schedulercli`).
-   - Settings opens (menu → Settings, or ⌘,) and prefs persist across relaunch.
 
-## Rules
+4. Cross-check app state through the bundled CLI:
 
-- **Never trigger Keychain prompts.** Credentials use file storage in DEBUG. Keep
-  `KeychainPromptSafetyAuditTests` green.
-- If a test needs live network or a TTY, gate it behind an env var; don't make it run by default.
-- Report what you observed (menu contents, log lines), not just "it works".
+   ```sh
+   .build/package/Clockwork.app/Contents/MacOS/clockworkcli list --json
+   ```
+
+5. For packaging work, run `make package`, verify both executable architectures with `lipo -archs`, run `make dmg`, and verify the DMG with `hdiutil verify`.
+
+Do not trigger Keychain prompts in tests. Report the exact app path, process, signatures, architectures, and behavior you verified.

@@ -3,7 +3,7 @@
 // release. Pure Node (no deps). Driven entirely by environment variables set by
 // Scripts/make_appcast.sh:
 //   APPCAST, CHANGELOG, VERSION, BUILD, MIN_MACOS, DOWNLOAD_URL, ED_SIGNATURE,
-//   ZIP_LENGTH, PUB_DATE, APP_DISPLAY, FEED_URL
+//   ARTIFACT_LENGTH, PUB_DATE, APP_DISPLAY, FEED_URL
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 
 const env = process.env;
@@ -13,7 +13,7 @@ const BUILD = env.BUILD;
 const MIN_MACOS = env.MIN_MACOS;
 const DOWNLOAD_URL = env.DOWNLOAD_URL;
 const ED_SIGNATURE = env.ED_SIGNATURE;
-const ZIP_LENGTH = env.ZIP_LENGTH;
+const ARTIFACT_LENGTH = env.ARTIFACT_LENGTH;
 const PUB_DATE = env.PUB_DATE;
 const APP_DISPLAY = env.APP_DISPLAY || 'App';
 const FEED_URL = env.FEED_URL || '';
@@ -78,7 +78,7 @@ const item =
             <description><![CDATA[
 ${descriptionHtml}
 ]]></description>
-            <enclosure url="${escapeXml(DOWNLOAD_URL)}" length="${escapeXml(ZIP_LENGTH)}" type="application/octet-stream" sparkle:edSignature="${escapeXml(ED_SIGNATURE)}"/>
+            <enclosure url="${escapeXml(DOWNLOAD_URL)}" length="${escapeXml(ARTIFACT_LENGTH)}" type="application/octet-stream" sparkle:edSignature="${escapeXml(ED_SIGNATURE)}"/>
         </item>`;
 
 function emptyFeed() {

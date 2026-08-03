@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: build dev start test check lint format docs-list package install
+.PHONY: build dev start test check lint format docs-list package dmg install release appcast
 
 build:
 	swift build
@@ -25,5 +25,14 @@ docs-list:
 package:
 	./Scripts/package_app.sh release
 
+dmg: package
+	./Scripts/build_dmg.sh
+
 install:
 	./Scripts/install_local.sh
+
+release:
+	./Scripts/sign-and-notarize.sh
+
+appcast:
+	./Scripts/make_appcast.sh $(ARTIFACT)

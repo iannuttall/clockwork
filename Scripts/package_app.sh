@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Assemble Scheduler.app from SwiftPM build products (no Xcode project).
+# Assemble Clockwork.app from SwiftPM build products (no Xcode project).
 #
 # Usage: Scripts/package_app.sh [release|debug]   (default: release)
 #   release: universal (arm64 + x86_64), unsigned (sign-and-notarize.sh signs it).
@@ -124,12 +124,28 @@ if [[ -d "$ROOT/Sources/$APP_NAME/Resources" ]]; then
     cp -R "$ROOT/Sources/$APP_NAME/Resources/." "$APP/Contents/Resources/" 2>/dev/null || true
 fi
 
-# Convert Icon.icon (IconStudio) -> Icon.icns when present, then install it.
-if [[ -d "$ROOT/Icon.icon" ]] && command -v iconutil >/dev/null 2>&1; then
-    iconutil --convert icns --output "$ROOT/Icon.icns" "$ROOT/Icon.icon" 2>/dev/null || true
-fi
-if [[ -f "$ROOT/Icon.icns" ]]; then
-    cp "$ROOT/Icon.icns" "$APP/Contents/Resources/Icon.icns"
+# Compile the Icon Composer project when present. Development and CI builds can
+# run without it while the final artwork is being prepared; release preflight
+# requires it before signing.
+ICON_ENTRY=""
+if [[ -d "$ROOT/Resources/AppIcon.icon" ]]; then
+    ICON_OUTPUT="$ROOT/.build/icon"
+    rm -rf "$ICON_OUTPUT"
+    mkdir -p "$ICON_OUTPUT"
+    if xcrun actool "$ROOT/Resources/AppIcon.icon" \
+        --compile "$ICON_OUTPUT" \
+        --platform macosx \
+        --minimum-deployment-target "$MIN_MACOS" \
+        --app-icon AppIcon \
+        --output-partial-info-plist "$ICON_OUTPUT/partial.plist" \
+        --errors --warnings; then
+        [[ -f "$ICON_OUTPUT/Assets.car" ]] && cp "$ICON_OUTPUT/Assets.car" "$APP/Contents/Resources/Assets.car"
+        [[ -f "$ICON_OUTPUT/AppIcon.icns" ]] && cp "$ICON_OUTPUT/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+        ICON_ENTRY='<key>CFBundleIconFile</key><string>AppIcon</string><key>CFBundleIconName</key><string>AppIcon</string>'
+    else
+        echo "ERROR: Failed to compile the Clockwork app icon." >&2
+        exit 1
+    fi
 fi
 
 # --- Info.plist --------------------------------------------------------------
@@ -159,7 +175,7 @@ cat > "$PLIST" <<PLIST
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>${MARKETING_VERSION}</string>
     <key>CFBundleVersion</key><string>${BUILD_NUMBER}</string>
-    <key>CFBundleIconFile</key><string>Icon</string>
+    ${ICON_ENTRY}
     <key>LSMinimumSystemVersion</key><string>${MIN_MACOS}</string>
     <key>LSUIElement</key><true/>
     <key>LSMultipleInstancesProhibited</key><true/>
@@ -187,6 +203,12 @@ if [[ -d "$SPARKLE_SRC" ]]; then
     echo "==> Embedding Sparkle.framework" >&2
     cp -R "$SPARKLE_SRC" "$APP/Contents/Frameworks/"
     chmod -R a+rX "$APP/Contents/Frameworks/Sparkle.framework"
+    SPARKLE_LICENSE="$ROOT/.build/checkouts/Sparkle/LICENSE"
+    if [[ ! -f "$SPARKLE_LICENSE" ]]; then
+        echo "ERROR: Sparkle license not found at $SPARKLE_LICENSE" >&2
+        exit 1
+    fi
+    cp "$SPARKLE_LICENSE" "$APP/Contents/Resources/Sparkle-LICENSE.txt"
     # SwiftPM links Sparkle via @rpath; add the standard app framework rpath.
     install_name_tool -add_rpath "@executable_path/../Frameworks" \
         "$APP/Contents/MacOS/$APP_NAME" 2>/dev/null || true
@@ -207,12 +229,33 @@ if [[ "$CONF" == "debug" ]]; then
     echo "==> Ad-hoc signing (debug)" >&2
     if [[ -d "$APP/Contents/Frameworks/Sparkle.framework" ]]; then
         while IFS= read -r target; do
-            [[ -n "$target" ]] && codesign --force --sign - "$target" || true
+            [[ -n "$target" ]] && codesign --force --sign - "$target"
         done < <(sparkle_signing_targets "$APP/Contents/Frameworks/Sparkle.framework")
     fi
-    codesign --force --sign - "$APP/Contents/MacOS/$CLI_NAME" || true
+    codesign --force --sign - "$APP/Contents/MacOS/$CLI_NAME"
     codesign --force --sign - --deep "$APP"
 fi
+
+if [[ "$CONF" == "release" ]]; then
+    verify_universal() {
+        local target="$1" architectures
+        architectures=$(lipo -archs "$target")
+        [[ " $architectures " == *" arm64 "* && " $architectures " == *" x86_64 "* ]] || {
+            echo "ERROR: Expected a universal binary at $target, found: $architectures" >&2
+            exit 1
+        }
+    }
+
+    verify_universal "$APP/Contents/MacOS/$APP_NAME"
+    verify_universal "$APP/Contents/MacOS/$CLI_NAME"
+    if [[ -d "$APP/Contents/Frameworks/Sparkle.framework" ]]; then
+        while IFS= read -r -d '' target; do
+            if file "$target" | grep -q 'Mach-O'; then verify_universal "$target"; fi
+        done < <(find "$APP/Contents/Frameworks/Sparkle.framework" -type f -perm -111 -print0)
+    fi
+fi
+
+plutil -lint "$PLIST" >/dev/null
 
 echo "==> Built $APP" >&2
 echo "$APP"

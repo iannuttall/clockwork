@@ -1,61 +1,36 @@
 ---
-summary: "How Scheduler is put together: targets, the menu bar, state, and data flow."
+summary: "How Clockwork is split across Core, the CLI, the menu bar app, and launchd."
 read_when:
-  - Reviewing the architecture before feature work
-  - Changing app lifecycle, the status item, or module boundaries
-  - Deciding whether code belongs in Core or the app target
+  - Reviewing architecture before feature work
+  - Changing app lifecycle, scheduling, storage, or module boundaries
 ---
 
 # Architecture
 
 ## Targets
 
-Three SwiftPM targets, layered:
+Clockwork has three SwiftPM targets:
 
-- **`SchedulerCore`** — portable domain logic (models, services, parsing). No AppKit; compiles on
-  Linux. This is where business logic and anything worth testing lives.
-- **`schedulercli`** — a thin executable over Core. Runs the same logic headlessly (`swift run
-  schedulercli`), which is how Core gets exercised in tests and CI without an app bundle.
-- **`Scheduler`** — the macOS app. Thin UI. Depends on Core. Links Sparkle (gated by `ENABLE_SPARKLE`).
+- `ClockworkCore` owns schedules, task storage, launch-agent files, shell wrappers, run history, attention events, and legacy migration. It has no AppKit or SwiftUI dependency and builds on Linux.
+- `clockworkcli` is a thin executable over Core. It reads and writes the same tasks as the app.
+- `Clockwork` is the native menu bar app. It owns presentation, notifications, settings, and Sparkle.
 
-The app bundle is assembled by `Scripts/package_app.sh`, not Xcode — SwiftPM can't emit `.app`
-bundles, so the script generates `Info.plist`, lipo-merges arches, embeds `Sparkle.framework`, and
-signs. There is no `.xcodeproj`.
+SwiftPM builds executables, then `Scripts/package_app.sh` assembles the macOS bundle, merges `arm64` and `x86_64` slices, embeds Sparkle, compiles the Icon Composer project when present, and writes `Info.plist`.
 
-## The menu bar
+## Scheduling and storage
 
-The app is a no-dock agent (`LSUIElement`). `AppDelegate` creates `PanelController`, which owns the
-`NSStatusItem` and a borderless, keyable `NSPanel`. A persistent `NSHostingView` renders
-`PanelContentView`; it is created once, has intrinsic sizing disabled, and scrolls inside a size the
-controller chooses when the panel opens.
+Task definitions live in `~/Library/Application Support/Clockwork/tasks.json`. `LaunchAgentManager` writes one shell wrapper and one launch-agent plist per enabled task. `launchd` starts the wrapper, so Clockwork itself does not need to stay open.
 
-Opening the panel never performs disk or process work. It paints the model's warm snapshot first,
-then asks `SchedulerModel` to refresh asynchronously. Global mouse monitoring dismisses it without
-entering `NSMenu`'s blocking event-tracking loop. A native menu is used only for the status item's
-small right-click context menu.
+Each run gets its own directory containing timestamps, stdout, stderr, exit status, and an optional attention event. A small `latest` pointer lets the menu refresh without reading every log. Wrappers retain the newest 50 run directories.
 
-Why AppKit and not `MenuBarExtra`: the panel needs reliable keyboard focus, exact menu-bar anchoring,
-explicit dismissal, and control over status-item badge drawing.
+The first Clockwork run can move data from the private pre-release Scheduler build. The migration marker is kept until legacy jobs have been unloaded and all current jobs have been registered under the new Clockwork labels.
 
-## State
+## Menu bar and state
 
-Modern Observation only. `SettingsStore` and `SchedulerModel` are `@MainActor @Observable` types.
-Stores are owned by the `App` via `@State` and passed down by constructor. No
-`ObservableObject`/`@StateObject`.
+`PanelController` owns the `NSStatusItem` and a persistent keyable `NSPanel` hosting SwiftUI. The controller fixes the panel size and position. The normal timer symbol is a template image; attention uses a separately drawn orange badge.
 
-`SchedulerModel` never performs repository or `launchctl` work on the main actor. Its frequent
-refresh reads only task metadata and the latest run's small status files. Full stdout/stderr history
-loads separately when an editor opens. Equal refreshes do not replace observable arrays, avoiding a
-panel redraw every polling interval.
-
-## Data flow
-
-`TaskRepository` reads and writes task/run data. `SchedulerModel` moves those calls to utility tasks
-and commits resulting `TaskSnapshot` values on the main actor. `PanelContentView` and the settings
-window render the same snapshots. The CLI calls `SchedulerCore` directly.
+`ClockworkModel` is `@MainActor @Observable`, but repository and `launchctl` work runs in detached utility tasks. The panel renders a cached snapshot immediately, then refreshes asynchronously. Full log history loads only when a task is opened.
 
 ## Updates
 
-`Updater.swift` wraps Sparkle behind `UpdaterProviding` with a `DisabledUpdaterController` no-op for
-unsigned/dev builds, so update dialogs never fire during development. The feed is the committed
-`appcast.xml` served from GitHub; see `docs/releasing.md`.
+`Updater.swift` wraps Sparkle behind `UpdaterProviding`. Debug bundles omit Sparkle feed metadata so local development never starts update checks. Public releases use the committed `appcast.xml`; see [Releasing](releasing.md).

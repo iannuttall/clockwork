@@ -1,27 +1,18 @@
 ---
-name: inspect-scheduler
-description: Read-only inspection of Scheduler — config, version, and current status. Never mutates config, credentials, or releases.
+name: inspect-clockwork
+description: Read-only inspection of Clockwork identity, version, tasks, and release state.
 ---
 
-# Inspect Scheduler
+# Inspect Clockwork
 
-Use this to answer "what is the app's current state" without changing anything.
+Use this skill to answer questions about the app without changing tasks, jobs, credentials, or releases.
 
-## Rules
+## Read
 
-- **Read-only.** Never edit `app.config.json`, `version.env`, credentials, or run a release.
-- Never print secrets. Signing/notary material is not in this repo; do not read `~/.config/macos/secrets`.
+- Read `app.config.json` for app identity, distribution, repository, and Sparkle configuration.
+- Read `version.env` for the marketing version and build number.
+- Run `swift run clockworkcli list --json` to inspect shared task state without launching the app.
+- Read `appcast.xml` to inspect published update entries.
+- Run `git status --short` and `git remote -v` to inspect repository readiness.
 
-## What to read
-
-- Identity & distribution: `app.config.json`.
-- Version: `version.env` (`MARKETING_VERSION`, `BUILD_NUMBER`).
-- Headless status (no app bundle needed): `swift run schedulercli` — prints the app's current
-  `AppStatus` as JSON. This is the fastest way to see what the menu would show.
-- Released versions: `appcast.xml` (each `<item>` is a shipped build).
-- Compliance: `macos audit scheduler`.
-
-## Don't
-
-- Don't launch the app to inspect it — use `schedulercli`.
-- Don't run `swift test`/`make check` here; that's the qa skill.
+Never read or print signing, notary, or Sparkle private keys. Use the QA skill for builds and tests.

@@ -1,43 +1,33 @@
 ---
-name: release-scheduler
-description: Ship a signed, notarized, auto-updating release of Scheduler. Use when cutting a new version.
+name: release-clockwork
+description: Build and verify a signed, notarized, auto-updating Clockwork release.
 ---
 
-# Release Scheduler
+# Release Clockwork
 
-One command does the whole pipeline: `macos release scheduler`. This skill is the checklist around it.
+## Preflight
 
-## Before releasing
+1. Move user-facing changes into a dated `## X.Y.Z - YYYY-MM-DD` section in `CHANGELOG.md`.
+2. Set the matching `MARKETING_VERSION` and a strictly increasing `BUILD_NUMBER` in `version.env`.
+3. Confirm `Resources/AppIcon.icon` contains the final artwork.
+4. Confirm the Developer ID identity, `notarytool` profile, and Sparkle keychain key described in `docs/releasing.md` are available.
+5. Run `make check` and commit the clean release state.
 
-1. **Finalize the changelog.** Move work from `## Unreleased` into a dated `## X.Y.Z - YYYY-MM-DD`
-   section. Entries are user-facing prose — what someone notices, not internal churn. This text
-   becomes the GitHub release notes and the Sparkle appcast description verbatim.
-2. **Set the version.** `macos bump scheduler --version X.Y.Z` (or `macos bump scheduler` to bump just
-   the build number). The build number must strictly increase — Sparkle compares on it.
-3. **Clean tree.** Commit everything; the release refuses to run on a dirty working tree.
-4. **Preview.** `macos release scheduler --dry-run` — it lists every step and flags anything missing.
+## Build
 
-## Release
+Run `make release`. Do not run individual signing or notarization commands by hand.
 
+The command creates:
+
+- `.build/artifacts/Clockwork-X.Y.Z.dmg`
+- `.build/artifacts/Clockwork-X.Y.Z.dmg.sha256`
+
+## Publish
+
+Upload both files to a draft GitHub release tagged `vX.Y.Z`, then run:
+
+```sh
+make appcast ARTIFACT=.build/artifacts/Clockwork-X.Y.Z.dmg
 ```
-macos release scheduler
-```
 
-It runs: preflight → `swift test` → build+sign+notarize+staple → GitHub release (zip + dSYM) →
-EdDSA-signed appcast (committed + pushed) → Homebrew cask → bump build number. It's idempotent and
-fail-fast; re-running after a fix is safe.
-
-## After releasing — verify the chain
-
-- The GitHub release exists with the zip asset.
-- `appcast.xml` has the new `<item>` with an `sparkle:edSignature`.
-- The enclosure URL returns 200 (`curl -I <url>`).
-- `brew install --cask scheduler` (if a tap is configured) installs the new version.
-- Install the previous build and confirm Sparkle offers + applies the update.
-
-A release isn't done until that chain checks out.
-
-## Rules
-
-- Signing/notary creds come from `~/.config/macos` — never hardcode or commit them.
-- If notarization fails, fix and re-run; don't ship an un-notarized build (Gatekeeper will block it).
+Review and commit `appcast.xml`, then publish the draft release. Verify the GitHub download, checksum, appcast signature, and an update from the previous installed build. Never commit private keys or ship an unnotarized artifact.
