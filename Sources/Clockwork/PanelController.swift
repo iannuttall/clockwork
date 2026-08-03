@@ -97,7 +97,9 @@ final class PanelController: NSObject, NSWindowDelegate {
         })
         let appeared = !current.subtracting(self.flaggedAttentionRuns).isEmpty
         self.flaggedAttentionRuns = current
-        if appeared { self.startFlash() }
+        if appeared {
+            self.startFlash()
+        }
     }
 
     private func renderStatusItem(alerting: Bool) {

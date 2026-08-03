@@ -48,7 +48,9 @@ public struct LaunchAgentManager: Sendable {
     }
 
     public func sync(_ task: ScheduledTask) throws {
-        if let error = task.validationError { throw ClockworkError.invalidTask(error) }
+        if let error = task.validationError {
+            throw ClockworkError.invalidTask(error)
+        }
         try self.paths.prepare()
         try self.writeWrapper(for: task)
         self.unload(task.id)
@@ -172,7 +174,9 @@ public struct LaunchAgentManager: Sendable {
 
     private static func expanded(_ path: String?) -> String? {
         guard let path = path?.trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty else { return nil }
-        if path == "~" { return FileManager.default.homeDirectoryForCurrentUser.path }
+        if path == "~" {
+            return FileManager.default.homeDirectoryForCurrentUser.path
+        }
         if path.hasPrefix("~/") {
             return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(String(path.dropFirst(2)))
                 .path

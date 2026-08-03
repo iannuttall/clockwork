@@ -89,14 +89,18 @@ public struct TaskRepository: Sendable {
             guard let started = Self.epoch(at: directory.appendingPathComponent("started")) else { return nil }
             return RankedRun(url: directory, id: directory.lastPathComponent, started: started)
         }.sorted {
-            if $0.started != $1.started { return $0.started > $1.started }
+            if $0.started != $1.started {
+                return $0.started > $1.started
+            }
             return $0.id > $1.id
         }
 
         let runs = ranked.prefix(limit).compactMap {
             self.readResult(at: $0.url, id: $0.id, includeOutput: includeOutput)
         }
-        if !runs.isEmpty { return runs }
+        if !runs.isEmpty {
+            return runs
+        }
 
         let legacy = self.paths.resultDirectory(for: id)
         guard let result = self.readResult(at: legacy, id: "legacy", includeOutput: includeOutput) else { return [] }

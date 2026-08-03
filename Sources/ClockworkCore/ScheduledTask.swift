@@ -183,10 +183,18 @@ public struct TaskRunResult: Codable, Equatable, Identifiable, Sendable {
     }
 
     public var summary: String {
-        if self.isRunning { return "Running now" }
-        if self.requiresAttention { return "Needs attention" }
-        if self.succeeded { return "Succeeded" }
-        if let exitCode { return "Failed (exit \(exitCode))" }
+        if self.isRunning {
+            return "Running now"
+        }
+        if self.requiresAttention {
+            return "Needs attention"
+        }
+        if self.succeeded {
+            return "Succeeded"
+        }
+        if let exitCode {
+            return "Failed (exit \(exitCode))"
+        }
         return "No result"
     }
 

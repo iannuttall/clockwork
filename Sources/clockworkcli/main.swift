@@ -46,8 +46,7 @@ do {
     exit(1)
 }
 
-// Command dispatch is deliberately kept in one place so the CLI stays easy to scan.
-// swiftlint:disable:next cyclomatic_complexity
+/// Command dispatch is deliberately kept in one place so the CLI stays easy to scan.
 func run() throws {
     _ = try LegacySchedulerMigration.migrateDataIfNeeded(destination: repository.paths)
     let migratedTasks = try repository.list()
@@ -63,45 +62,13 @@ func run() throws {
 
     switch command {
     case "list":
-        let tasks = try repository.list()
-        if json {
-            try printJSON(tasks.map { JSONSnapshot(task: $0, lastRun: repository.result(for: $0.id)) })
-        } else if tasks.isEmpty {
-            print("No scheduled tasks.")
-        } else {
-            for task in tasks {
-                let state = task.isEnabled ? "enabled" : "disabled"
-                let result = repository.result(for: task.id)?.summary ?? "never run"
-                let identity = "\(task.id.uuidString.lowercased())  \(task.name)"
-                print("\(identity)  ·  \(task.schedule.summary)  ·  \(state)  ·  \(result)")
-            }
-        }
+        try listTasks(json: json)
 
     case "show":
-        let task = try requireTask(arguments.values.first)
-        if json {
-            try printJSON(JSONSnapshot(task: task, lastRun: repository.result(for: task.id)))
-        } else {
-            printTask(task)
-        }
+        try showTask(arguments.values.first, json: json)
 
     case "runs":
-        let task = try requireTask(arguments.values.first)
-        let runs = repository.results(for: task.id)
-        if json {
-            try printJSON(runs)
-        } else if runs.isEmpty {
-            print("No runs for \(task.name).")
-        } else {
-            print("Runs for \(task.name):")
-            for result in runs {
-                let time = result.startedAt.formatted(.iso8601)
-                print("\(time)  ·  \(result.summary)  ·  \(result.id)")
-                if !result.combinedOutput.isEmpty {
-                    print(result.combinedOutput)
-                }
-            }
-        }
+        try printRuns(arguments.values.first, json: json)
 
     case "add":
         let name = try required(arguments.option("--name"), message: "--name is required")
@@ -116,29 +83,55 @@ func run() throws {
             isEnabled: !arguments.flag("--disabled"))
         let saved = try repository.save(task)
         try launchAgents.sync(saved)
-        if json { try printJSON(saved) } else { print("Added \(saved.name): \(saved.schedule.summary)") }
+        if json {
+            try printJSON(saved)
+        } else {
+            print("Added \(saved.name): \(saved.schedule.summary)")
+        }
 
     case "update":
         let existing = try requireTask(arguments.values.first)
-        if !arguments.values.isEmpty { arguments.values.removeFirst() }
+        if !arguments.values.isEmpty {
+            arguments.values.removeFirst()
+        }
         var draft = existing
-        if let name = arguments.option("--name") { draft.name = name }
+        if let name = arguments.option("--name") {
+            draft.name = name
+        }
         let commands = arguments.options("--command")
-        if !commands.isEmpty { draft.commands = commands }
-        if let cwd = arguments.option("--cwd") { draft.workingDirectory = cwd == "-" ? nil : cwd }
-        if hasSchedule(arguments.values) { draft.schedule = try parseSchedule(arguments: &arguments) }
-        if arguments.flag("--enable") { draft.isEnabled = true }
-        if arguments.flag("--disable") { draft.isEnabled = false }
+        if !commands.isEmpty {
+            draft.commands = commands
+        }
+        if let cwd = arguments.option("--cwd") {
+            draft.workingDirectory = cwd == "-" ? nil : cwd
+        }
+        if hasSchedule(arguments.values) {
+            draft.schedule = try parseSchedule(arguments: &arguments)
+        }
+        if arguments.flag("--enable") {
+            draft.isEnabled = true
+        }
+        if arguments.flag("--disable") {
+            draft.isEnabled = false
+        }
         let saved = try repository.save(draft)
         try launchAgents.sync(saved)
-        if json { try printJSON(saved) } else { print("Updated \(saved.name)") }
+        if json {
+            try printJSON(saved)
+        } else {
+            print("Updated \(saved.name)")
+        }
 
     case "enable", "disable":
         var task = try requireTask(arguments.values.first)
         task.isEnabled = command == "enable"
         let saved = try repository.save(task)
         try launchAgents.sync(saved)
-        if json { try printJSON(saved) } else { print("\(saved.isEnabled ? "Enabled" : "Disabled") \(saved.name)") }
+        if json {
+            try printJSON(saved)
+        } else {
+            print("\(saved.isEnabled ? "Enabled" : "Disabled") \(saved.name)")
+        }
 
     case "delete":
         let task = try requireTask(arguments.values.first)
@@ -176,6 +169,50 @@ func run() throws {
 
     default:
         throw ClockworkError.invalidTask("Unknown command '\(command)'. Run clockwork help.")
+    }
+}
+
+func listTasks(json: Bool) throws {
+    let tasks = try repository.list()
+    if json {
+        try printJSON(tasks.map { JSONSnapshot(task: $0, lastRun: repository.result(for: $0.id)) })
+    } else if tasks.isEmpty {
+        print("No scheduled tasks.")
+    } else {
+        for task in tasks {
+            let state = task.isEnabled ? "enabled" : "disabled"
+            let result = repository.result(for: task.id)?.summary ?? "never run"
+            let identity = "\(task.id.uuidString.lowercased())  \(task.name)"
+            print("\(identity)  ·  \(task.schedule.summary)  ·  \(state)  ·  \(result)")
+        }
+    }
+}
+
+func showTask(_ identifier: String?, json: Bool) throws {
+    let task = try requireTask(identifier)
+    if json {
+        try printJSON(JSONSnapshot(task: task, lastRun: repository.result(for: task.id)))
+    } else {
+        printTask(task)
+    }
+}
+
+func printRuns(_ identifier: String?, json: Bool) throws {
+    let task = try requireTask(identifier)
+    let runs = repository.results(for: task.id)
+    if json {
+        try printJSON(runs)
+    } else if runs.isEmpty {
+        print("No runs for \(task.name).")
+    } else {
+        print("Runs for \(task.name):")
+        for result in runs {
+            let time = result.startedAt.formatted(.iso8601)
+            print("\(time)  ·  \(result.summary)  ·  \(result.id)")
+            if !result.combinedOutput.isEmpty {
+                print(result.combinedOutput)
+            }
+        }
     }
 }
 
@@ -263,8 +300,12 @@ func explainCron(_ expression: String) throws -> String {
     }
     if let minute = Int(fields[0]), let hour = Int(fields[1]), fields[2] == "*", fields[3] == "*" {
         let time = String(format: "%02d:%02d", hour, minute)
-        if fields[4] == "*" { return "Every day at \(time)" }
-        if fields[4] == "1-5" { return "Monday to Friday at \(time)" }
+        if fields[4] == "*" {
+            return "Every day at \(time)"
+        }
+        if fields[4] == "1-5" {
+            return "Monday to Friday at \(time)"
+        }
     }
     return "Valid-looking cron, but Clockwork cannot translate this pattern yet. " +
         "Use the visual schedule picker instead."
@@ -274,7 +315,9 @@ func printTask(_ task: ScheduledTask) {
     let enabled = task.isEnabled ? "yes" : "no"
     print("\(task.name)\nID: \(task.id.uuidString.lowercased())")
     print("Schedule: \(task.schedule.summary)\nEnabled: \(enabled)")
-    if let workingDirectory = task.workingDirectory { print("Folder: \(workingDirectory)") }
+    if let workingDirectory = task.workingDirectory {
+        print("Folder: \(workingDirectory)")
+    }
     print("Commands:\n\(task.commands.map { "  \($0)" }.joined(separator: "\n"))")
     if let result = repository.result(for: task.id) {
         print("Last run: \(result.summary) at \(result.startedAt.formatted(.iso8601))")

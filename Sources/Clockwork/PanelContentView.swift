@@ -155,10 +155,16 @@ struct PanelContentView: View {
     }
 
     private var footerText: String {
-        if let error = self.model.errorMessage { return error }
-        if let notice = self.model.notice { return notice }
+        if let error = self.model.errorMessage {
+            return error
+        }
+        if let notice = self.model.notice {
+            return notice
+        }
         let attention = self.model.snapshots.count(where: self.model.needsAttention)
-        if attention > 0 { return "\(attention) task\(attention == 1 ? "" : "s") need attention" }
+        if attention > 0 {
+            return "\(attention) task\(attention == 1 ? "" : "s") need attention"
+        }
         return self.model.snapshots.isEmpty ? "Nothing scheduled" : "All tasks accounted for"
     }
 }
@@ -219,8 +225,12 @@ private struct TaskPanelRow: View {
         guard let result = self.snapshot.lastRun else {
             return self.snapshot.task.isEnabled ? .blue : .secondary
         }
-        if result.isRunning { return .orange }
-        if result.requiresAttention { return self.attentionAcknowledged ? .green : .orange }
+        if result.isRunning {
+            return .orange
+        }
+        if result.requiresAttention {
+            return self.attentionAcknowledged ? .green : .orange
+        }
         return result.succeeded ? .green : .red
     }
 

@@ -42,7 +42,9 @@ struct TasksPreferencesPane: View {
                     }
                     .listStyle(.sidebar)
                     .onChange(of: self.model.selectedTaskID) { _, id in
-                        if let id { self.model.beginEditing(id) }
+                        if let id {
+                            self.model.beginEditing(id)
+                        }
                     }
                 }
             }
@@ -88,8 +90,12 @@ private struct TaskListRow: View {
 
     private var statusColor: Color {
         guard let result = self.snapshot.lastRun else { return .blue }
-        if result.isRunning { return .orange }
-        if result.requiresAttention { return self.attentionAcknowledged ? .green : .orange }
+        if result.isRunning {
+            return .orange
+        }
+        if result.requiresAttention {
+            return self.attentionAcknowledged ? .green : .orange
+        }
         return result.succeeded ? .green : .red
     }
 }
@@ -322,7 +328,9 @@ private struct RunHistoryCard: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        if result.id != self.runs.prefix(10).last?.id { Divider() }
+                        if result.id != self.runs.prefix(10).last?.id {
+                            Divider()
+                        }
                     }
                 }
                 .background(Color(nsColor: .textBackgroundColor))
@@ -356,12 +364,16 @@ private struct RunHistoryCard: View {
     }
 
     private var historyLabel: String {
-        if self.isLoading, self.runs.isEmpty { return "Loading run history…" }
+        if self.isLoading, self.runs.isEmpty {
+            return "Loading run history…"
+        }
         return self.runs.isEmpty ? "No runs yet" : "Latest \(min(self.runs.count, 50)) runs"
     }
 
     private func symbol(for result: TaskRunResult) -> String {
-        if result.isRunning { return "arrow.trianglehead.2.clockwise.rotate.90" }
+        if result.isRunning {
+            return "arrow.trianglehead.2.clockwise.rotate.90"
+        }
         if result.requiresAttention {
             return self.isAcknowledged(result) ? "checkmark.circle.fill" : "exclamationmark.circle.fill"
         }
@@ -369,14 +381,20 @@ private struct RunHistoryCard: View {
     }
 
     private func color(for result: TaskRunResult) -> Color {
-        if result.isRunning { return .orange }
-        if result.requiresAttention { return self.isAcknowledged(result) ? .green : .orange }
+        if result.isRunning {
+            return .orange
+        }
+        if result.requiresAttention {
+            return self.isAcknowledged(result) ? .green : .orange
+        }
         return result.succeeded ? .green : .red
     }
 
     private func label(for result: TaskRunResult) -> String {
         guard result.requiresAttention else { return result.summary }
-        if self.isAcknowledged(result) { return "Seen" }
+        if self.isAcknowledged(result) {
+            return "Seen"
+        }
         return result.event.map { "\($0.title): needs attention" } ?? result.summary
     }
 

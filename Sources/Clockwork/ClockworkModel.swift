@@ -319,7 +319,9 @@ final class ClockworkModel {
         switch outcome {
         case let .loaded(snapshots):
             let changed = snapshots != self.snapshots
-            if changed { self.snapshots = snapshots }
+            if changed {
+                self.snapshots = snapshots
+            }
             if let selectedTaskID = self.selectedTaskID,
                !snapshots.contains(where: { $0.id == selectedTaskID })
             {
@@ -346,7 +348,9 @@ final class ClockworkModel {
             self.refresh()
             self.loadHistory(for: task.id)
         case let .enabled(task):
-            if self.draft?.id == task.id { self.draft?.isEnabled = task.isEnabled }
+            if self.draft?.id == task.id {
+                self.draft?.isEnabled = task.isEnabled
+            }
             self.refresh()
         case let .deleted(id):
             self.runHistory.removeValue(forKey: id)
